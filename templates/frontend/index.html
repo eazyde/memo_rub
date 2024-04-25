@@ -1,0 +1,233 @@
+{% extends 'frontend/base.html' %} 
+{% block content %}
+<style>
+  .different{
+    background-color:gainsboro;
+  }
+</style>
+<div class="container">
+    <div class="jumbotron">
+        <div class="row align-items-center" style="padding-bottom:30px;">
+            <div class="col-md-6">
+              <h1>Hello, {{ user.username }}</h1>
+            </div>
+            <div class="col-md-6 align-self-center" style="text-align: center;">
+                <div id="buttons"></div>
+            </div>
+          </div>
+          <div id="consecutive_days_board"></div>
+          <div class="container">
+            <div class="row" id="pagination"></div>
+            <div class="row" id="deckList"></div>
+            <div class="row" id="welcome"></div>
+          </div>
+      </div>
+    </div>
+</div>
+
+{% endblock content %} 
+{% block js %}
+<script>
+  $(document).ready(function () {
+    loadPage();
+  });
+
+  const loadPage = () => {
+
+    let authToken = localStorage.getItem("auth");
+    buttons.innerHTML = `<div style="padding-bottom:10px;">
+    <button type="button" class="btn btn-info btn-lg" onClick="openModal('addDeck')">Add deck</button>
+    </div>`;
+
+    getDeck();
+    getConsecutiveDays();
+
+  }
+
+const getConsecutiveDays = () => {
+  $.ajax({
+        url: "/api/consecutive-days/",
+        type: "GET",
+        beforeSend: function(request) {
+          request.setRequestHeader("Authorization", "Token " + authToken);
+        },
+        dataType: "json",
+        success: function (data) {
+          console.log(data)
+          if(data){
+            consecutive_days_board.innerHTML = consecutiveDaysTemplate(data);
+          }
+        }
+    });
+}
+
+const consecutiveDaysTemplate = (data) => {
+  let consecutive_days = "";
+
+  let title = (data.answered_today) ?  
+  "You've already answered today. Keep it going!" : 
+  "You haven't answered any cards today";
+
+  let latest_answer = (data.last_answered_date) ?
+  `Latest answered card: ${data.card_front}  (${data.last_answered_date})` :
+  "Build your streak. Create a card and start answering it!"
+
+  if(data.consecutive_days){
+    consecutive_days = `Consecutive answered days: ${data.consecutive_days}`
+  }
+
+  return `<div class="jumbotron jumbotron-fluid different">
+            <div class="container">
+              <h1 class="display-4">${consecutive_days}</h1>
+              <h1 class="display-5">${title}</h1>
+              <p class="lead">${latest_answer}</p>
+            </div>
+      </div>
+  `
+}
+
+const getDeck = (pagination = false) => {
+  $("#deckList").html("")
+
+  let url = (pagination) ? "/api/decks/?" + pagination : "/api/decks/";
+
+  $.ajax({
+        url: url,
+        type: "GET",
+        beforeSend: function(request) {
+          request.setRequestHeader("Authorization", "Token " + authToken);
+        },
+        dataType: "json",
+        success: function (data) {
+        if(data.count > 0){
+          for (let index = 0; index < data.results.length; index++){
+            $("#deckList").append(DecksCardTemplate(data.results[index]));
+          }
+
+          $('#pagination').html(paginationTemplate('getDeck',data.next,data.previous))
+        }else{
+          $("#welcome").append(welcomeTemplate);
+        }
+          decksLoaded();
+        },
+        complete: function(){
+          mainPageLoad();
+        }
+    });
+}
+
+const decksLoaded = () => {
+  $( ".any-card" ).click(function () {
+    let id = $(this).attr('id');
+        window.location.href = "/cards/deck/" + id + "/";
+  });
+
+  $( ".switch_deck" ).click(function () {
+    let id = $(this).attr('id').slice(7);
+
+    if($(this).prop('checked') === true){
+      $("label[for='switch_" + id + "']").text("Reminder: ON");
+      updateDeckStatus(id, true)
+    }else{
+      $("label[for='switch_" + id + "']").text("Reminder: OFF");
+      updateDeckStatus(id, false)
+    }
+  }); 
+}
+
+const addDeck = () => {
+  isModalLoading(true);
+  
+  deckName = $("#deckName").val();
+  deckDescription = $("#deckDescription").val();
+
+  let jsonData = {
+      "name": deckName,
+      "description": deckDescription
+  };
+
+  $.ajax({
+      url: "/api/decks/",
+      type: "POST",
+      beforeSend: function(request) {
+          request.setRequestHeader("Authorization", "Token " + authToken);
+      },
+      data: JSON.stringify(jsonData),
+      contentType: "application/json; charset=utf-8",
+      dataType: "json",
+      success: function (response) {
+          $('#modal').modal('hide');
+          $("#deckList").append(DecksCardTemplate(response))
+          decksLoaded();
+          $('#welcome').fadeOut();
+      },
+      error: function(response){
+          alert("Deck was not created. Insert at least 2 characters or try again.")
+      },
+      complete: function(){
+        isModalLoading(false);
+      }
+  });
+}
+
+const updateDeckStatus = (id, isActivated) => {
+  let jsonData = {
+      "active": isActivated
+  };
+
+  $.ajax({
+      url: "/api/decks/" + id + "/",
+      type: "PATCH",
+      beforeSend: function(request) {
+          request.setRequestHeader("Authorization", "Token " + authToken);
+      },
+      data: JSON.stringify(jsonData),
+      contentType: "application/json; charset=utf-8",
+      dataType: "json",
+      error: function(response){
+          alert("Unable to update the reminder. Try again.")
+      }
+  });
+}
+
+const welcomeTemplate = () => {
+    return `<div class="col-md-12 alert alert-info" role="alert" style="padding-top:20px; margin-top:20px">
+                <h2>Welcome to memo!</h2>
+                <br>
+                <p>Push <b>Add deck</b> button to create a new deck.</p>
+                <br>
+                <p>When you create a deck, by default, the notification will be set to <b>ON</b>.</p>
+                <p>Set a reminder to <b>ON</b> if you want to get a daily email to remind you to do your assignment with the selected deck. <p>
+                <p>Turning the reminder to <b>OFF</b>, the deck won't be listed in the reminder email.</p>
+            </div>`;
+  }
+
+  const DecksCardTemplate = (data) => { 
+    return ` 
+    <div class="col-md-4">
+      <div class="card text-center" 
+      style="width: 18rem; margin-bottom:10px; height:250px; cursor: pointer;">
+        <div class="card-body any-card" 
+      id=${data.id}>
+      <h4 class="card-title">${data.name}</h5>
+      <p class="card-text">Created at: ${data.created_at}</p>
+      <p class="card-text text-ellipsis">${data.description}</p>
+      </div>
+      
+      <div class="card-footer text-muted">
+      <p class="card-text">Total cards: ${data.cards.length}</p>
+
+      <div class="custom-control custom-switch">
+        <input type="checkbox" class="custom-control-input switch_deck" id="switch_${data.id}" 
+        ${(data.active) ? 'checked' : ''}>
+        <label class="custom-control-label" for="switch_${data.id}">Reminder: ${data.active ? 'ON' : 'OFF'}</label>
+      </div>
+      </div>
+    </div>`;
+  }
+
+</script>
+{% endblock js %}
+
+
+

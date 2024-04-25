@@ -1,0 +1,253 @@
+{% extends 'frontend/base.html' %} 
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+            <div style="width:100%; height: 1rem;"></div>
+        </div>
+    </div>
+    <div class="jumbotron">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h1 id="title"></h1>
+                    <div id="legend"></div>
+                </div>
+                <div class="col-md-6 align-self-center" style="text-align: center;">
+                    <div id="buttons"></div>
+                </div>
+            </div>
+        </div>
+            <div class="container">
+                <div class="row" id="cards">
+                </div>
+          </div>
+      </div>
+    </div>
+</div>
+{% endblock content %} 
+{% block js %}
+<script>
+    $(document).ready(function () {
+        $.ajax({
+            url: "/api/decks/{{ deck_id }}/",
+            type: "GET",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            dataType: "json",
+            success: function (data) {
+                if(data == ""){
+                    alert('Deck not found!');
+                    window.location.href = "/";
+                }else{
+                    loadPageTemplate(data);
+                    disableStartButtonIfCardDoesntExist();
+                }
+            },
+            complete: function(){
+                mainPageLoad();
+            }
+        });
+    });
+
+    function loadPageTemplate(data){
+        title.innerHTML = `<a href="{% url 'index' %}">
+            <div class="goBack" id="goBack">&#8249;</div></a> ` + data.name;
+        legend.innerHTML = '<p><b>Created at:</b> ' + data.created_at + '<p>' + data.description + '</p>';
+        buttons.innerHTML = `<div style="padding-bottom:10px;">
+            <a href="{% url 'memo_front:assigment' deck_id=deck_id  %}"><button type="button" class="btn btn-success btn-lg" style="margin-right:10px" id="startButton">Start</button></a>
+            <button type="button" class="btn btn-info btn-lg" onClick="openModal('addCard',${data.id})">Add card</button>
+            <button type="button" class="btn btn-danger btn-lg" onclick="openModal('deleteDeck',${data.id})">Delete this deck</button>
+        </div>`;
+
+        for (let index = 0; index < data.cards.length; index++){
+          $("#cards").append(loadCardTemplate(data.cards[index]));
+        }
+    }
+    
+    const loadCardTemplate = (data) => {
+      let answerHistoryButtonDisabled =  (data.card_history.length > 0) ? '' : 'disabled';
+
+      card = ` 
+        <div class="col-md-4" id="card_id_${data.id}">
+            <div class="card text-center any-card" style="width: 18rem; margin-bottom:10px; height:250px; cursor: pointer;">
+                <div class="card-header text-muted"></div>
+                <div class="card-body">
+                    <h2 class="card-title cardFrontSelector">${data.front}</h2>
+                    <input type="hidden" class="cardBackSelector" value="${data.back}">
+                    <p class="card-text">Created at: ${data.created_at}</p>
+                </div>
+            <div class="card-footer text-muted">
+                <button type="button" class="btn btn-outline-danger btn-sm" 
+                onClick="deleteCard(${data.id})">Delete</button>
+                <button type="button" class="btn btn-outline-warning btn-sm" 
+                onclick="openModal('updateCard',${data.id})">Update</button>
+                <button type="button" class="btn btn-outline-info btn-sm" 
+                onclick="openModal('historyCard',${data.id})" ${answerHistoryButtonDisabled}>History</button>
+            </div>
+        </div>`;
+        return card;
+    }    
+    
+    function getAnswerHistory(card_id){
+        $.ajax({
+            url: "/api/cards/" + card_id + "/card-answer/",
+            type: "GET",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            dataType: "json",
+            success: function (data) {
+                let result = "";
+
+                data.map((answer) => { result += `
+                <tr>
+                <td>${answer.user_answer}</td>
+                <td>${returnIcon(answer.correct)}</td>
+                <td>${answer.created_at}</td>
+                </tr>`});
+
+              $("#table_answer").append(result);
+            },
+        })
+    }
+
+    const getCardSelectorValue = (id) => {
+        let text = {};
+        text.front = $('#card_id_' + id + ' .cardFrontSelector').text();
+        text.back = $('#card_id_' + id + ' .cardBackSelector').val();
+
+        return text;
+    }
+
+    const disableStartButtonIfCardDoesntExist = () => {
+        ($("#cards").children().length > 0) ?  
+        $('#startButton').prop("disabled", false) : 
+        $('#startButton').prop("disabled", true);
+    }
+
+    const updateCard = (card_id) => {
+        isModalLoading(true);
+        cardFront = $("#cardFront").val();
+        cardBack = $("#cardBack").val();
+
+        if(cardFront == "" || cardBack.length == ""){
+            alert('Please fill out the required field(s)')
+            return;
+        }
+        
+        let jsonData = {
+            "front": cardFront,
+            "back": cardBack
+        };
+
+        $.ajax({
+            url: "/api/cards/" + card_id + "/",
+            type: "PUT",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            data: JSON.stringify(jsonData),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: function (response) {
+                $('#modal').modal('hide');
+                $('#card_id_' + card_id + ' .cardFrontSelector').text(cardFront)
+                $('#card_id_' + card_id + ' .cardBackSelector').val(cardBack)
+
+            },
+            error: function(){
+                alert('Unable to update. Try again.');
+            },
+            complete: function(){
+                isModalLoading(false);
+            }
+        });
+        
+    }
+
+    const addCard = (deck_id) => {
+        isModalLoading(true);
+        cardFront = $("#cardFront").val();
+        cardBack = $("#cardBack").val();
+
+        if(cardFront == "" || cardBack.length == ""){
+            alert('Please fill out the required field(s)')
+            return;
+        }
+
+        let jsonData = {
+            "front": cardFront,
+            "back": cardBack,
+            "deck": deck_id
+        };
+
+        $.ajax({
+            url: "/api/cards/",
+            type: "POST",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            data: JSON.stringify(jsonData),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: function (response) {
+                $('#modal').modal('hide');
+                $("#cards").append(loadCardTemplate(response));
+                disableStartButtonIfCardDoesntExist();
+            },
+            error: function(){
+                alert("Unable to add a card");
+            },
+            complete: function(){
+                isModalLoading(false);
+            }
+        });
+    }
+
+    const deleteCard = (card_id) => {  
+        isModalLoading(true);
+        $.ajax({
+            url: "/api/cards/" + card_id + "/",
+            type: "DELETE",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            dataType: "json",
+            success: function (response) {
+                document.getElementById("card_id_" + card_id).remove();
+                disableStartButtonIfCardDoesntExist();
+            },
+            error: function(response){
+                alert("Unable to delete the card. Try again.");
+            },
+            complete: function(){
+                isModalLoading(false);
+            }
+        });
+    }
+
+    const deleteDeck = (deck_id) => {  
+        isModalLoading(true);
+        $.ajax({
+            url: "/api/decks/" + deck_id + "/",
+            type: "DELETE",
+            beforeSend: function(request) {
+                request.setRequestHeader("Authorization", "Token " + authToken);
+            },
+            dataType: "json",
+            success: function (response) {
+                window.location.href = "/";
+            },
+            error: function (response){
+                alert('Unable to delete the deck. Try again.');
+            },
+            complete: function(){
+                isModalLoading(false);
+            }
+        });
+    }
+
+</script>
+{% endblock %}
